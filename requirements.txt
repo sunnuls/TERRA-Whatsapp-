@@ -1,0 +1,29 @@
+# requirements.txt
+# Основные зависимости для WhatsApp бота на 360dialog
+
+# Веб-сервер
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# Переменные окружения
+python-dotenv==1.0.0
+
+# HTTP запросы
+requests==2.31.0
+
+# Google Sheets интеграция
+gspread==5.12.0
+oauth2client==4.1.3
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
+# База данных (опционально)
+# sqlite3 встроен в Python
+
+# Планировщик задач (для автоматических действий)
+APScheduler==3.10.4
+
+# Дополнительные утилиты
+pytz==2023.3
+
