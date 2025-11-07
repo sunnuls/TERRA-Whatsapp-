@@ -1,11 +1,13 @@
 # webhook.py
 """
 Обработка webhook запросов от 360dialog.
+Поддержка FSM (машины состояний).
 """
 import logging
 from flask import Blueprint, request, jsonify
 from config import VERIFY_TOKEN
 from menu_handlers import handle_incoming_message
+from utils.state import get_state, States
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +78,27 @@ def webhook_receive():
                 phone = message.get('from')
                 msg_type = message.get('type')
                 
-                logger.info(f"[MSG] От {phone}, тип: {msg_type}")
+                # Получаем текущее состояние FSM пользователя
+                user_state = get_state(phone)
+                current_state = user_state.get('state')
+                
+                logger.info(f"[MSG] От {phone}, тип: {msg_type}, состояние FSM: {current_state}")
                 
                 if msg_type == 'text':
                     # Текстовое сообщение
                     text_body = message.get('text', {}).get('body', '').strip()
                     logger.info(f"[TEXT] {phone}: {text_body}")
+                    
+                    # FSM: Обработка в зависимости от состояния
+                    if current_state == States.SELECT_WORK:
+                        logger.info(f"[FSM] Состояние SELECT_WORK - обработка текста")
+                    elif current_state == States.SELECT_SHIFT:
+                        logger.info(f"[FSM] Состояние SELECT_SHIFT - обработка текста")
+                    elif current_state == States.SELECT_HOURS:
+                        logger.info(f"[FSM] Состояние SELECT_HOURS - обработка текста")
+                    elif current_state == States.CONFIRM_SAVE:
+                        logger.info(f"[FSM] Состояние CONFIRM_SAVE - обработка текста")
+                    
                     handle_incoming_message(message)
                 
                 elif msg_type == 'interactive':
@@ -96,6 +113,10 @@ def webhook_receive():
                         button_title = button_reply.get('title', '')
                         logger.info(f"[BUTTON] {phone}: {button_id} ({button_title})")
                         
+                        # FSM: Обработка кнопок в зависимости от состояния
+                        if current_state == States.CONFIRM_SAVE:
+                            logger.info(f"[FSM] Состояние CONFIRM_SAVE - обработка кнопки подтверждения")
+                        
                         # Добавляем button_id в message для обработки
                         message['button_id'] = button_id
                         handle_incoming_message(message)
@@ -106,6 +127,14 @@ def webhook_receive():
                         list_id = list_reply.get('id', '')
                         list_title = list_reply.get('title', '')
                         logger.info(f"[LIST] {phone}: {list_id} ({list_title})")
+                        
+                        # FSM: Обработка списков в зависимости от состояния
+                        if current_state == States.SELECT_WORK:
+                            logger.info(f"[FSM] Состояние SELECT_WORK - обработка выбора работы")
+                        elif current_state == States.SELECT_SHIFT:
+                            logger.info(f"[FSM] Состояние SELECT_SHIFT - обработка выбора смены")
+                        elif current_state == States.SELECT_HOURS:
+                            logger.info(f"[FSM] Состояние SELECT_HOURS - обработка выбора часов")
                         
                         # Добавляем list_id в message для обработки
                         message['list_id'] = list_id

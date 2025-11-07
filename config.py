@@ -14,8 +14,9 @@ D360_BASE_URL = os.getenv("D360_BASE_URL", "https://waba-v2.360dialog.io")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 # Google Sheets настройки
-SHEETS_CREDENTIALS = os.getenv("SHEETS_CREDENTIALS", "credentials.json")
+SHEETS_CREDENTIALS = os.getenv("SHEETS_CREDENTIALS", "")  # Base64 encoded JSON или путь к файлу
 SHEET_ID = os.getenv("SHEET_ID", "")
+SHEETS_ENABLED = os.getenv("SHEETS_ENABLED", "true").lower() == "true"
 
 # Сервер настройки
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")

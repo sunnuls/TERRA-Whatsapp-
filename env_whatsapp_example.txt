@@ -1,29 +1,48 @@
-# WhatsApp Business API настройки
-# Получите эти данные в Meta Developers Console: https://developers.facebook.com/
-WHATSAPP_TOKEN=YOUR_WHATSAPP_ACCESS_TOKEN
-WHATSAPP_PHONE_ID=YOUR_WHATSAPP_PHONE_NUMBER_ID
-VERIFY_TOKEN=my_verify_token_123
+# Пример файла .env для WhatsApp бота с 360dialog
+# Скопируйте этот файл в .env и заполните значения
 
+# ============================================================
+# 360dialog API (ОБЯЗАТЕЛЬНО)
+# ============================================================
+D360_API_KEY=your_360dialog_api_key_here
+D360_BASE_URL=https://waba-v2.360dialog.io
+VERIFY_TOKEN=your_verify_token_here
+
+# ============================================================
+# Google Sheets (для сохранения данных)
+# ============================================================
+# SHEETS_CREDENTIALS может быть:
+# 1. Путь к JSON файлу: credentials.json
+# 2. Base64 encoded JSON: eyJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsIC4uLn0=
+# 3. Прямой JSON строка: {"type": "service_account", ...}
+#
+# Получить JSON ключ:
+# 1. Google Cloud Console → IAM & Admin → Service Accounts
+# 2. Создать новый Service Account
+# 3. Создать ключ (JSON)
+# 4. Скачать файл или закодировать в base64:
+#    cat credentials.json | base64 -w 0
+SHEETS_CREDENTIALS=
+SHEET_ID=your_google_sheet_id_here
+SHEETS_ENABLED=true
+
+# ============================================================
 # Сервер
+# ============================================================
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
 
-# Админы (номера телефонов в формате 79991234567)
+# ============================================================
+# Админы (номера телефонов через запятую)
+# ============================================================
 ADMIN_IDS=79991234567,79997654321
 
+# ============================================================
+# База данных (опционально)
+# ============================================================
+DB_PATH=bot_data.db
+
+# ============================================================
 # Таймзона
+# ============================================================
 TZ=Europe/Moscow
-
-# Google Sheets настройки
-OAUTH_CLIENT_JSON=oauth_client.json
-TOKEN_JSON_PATH=token.json
-DRIVE_FOLDER_ID=your_google_drive_folder_id
-EXPORT_PREFIX=WorkLog
-
-# Автоматический экспорт
-AUTO_EXPORT_ENABLED=false
-AUTO_EXPORT_CRON=0 9 * * 1
-
-
-
-

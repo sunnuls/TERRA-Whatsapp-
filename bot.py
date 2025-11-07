@@ -206,6 +206,16 @@ def main():
     logger.info(f"🔗 Webhook URL: http://{SERVER_HOST}:{SERVER_PORT}/webhook")
     logger.info("=" * 60)
     
+    # Инициализация Google Sheets
+    logger.info("📊 Инициализация Google Sheets...")
+    from utils.sheets import init_sheets
+    if init_sheets():
+        logger.info("✅ Google Sheets готов к работе")
+    else:
+        logger.warning("⚠️ Google Sheets не инициализирован (работа продолжится без сохранения в таблицу)")
+    
+    logger.info("=" * 60)
+    
     try:
         # Запуск Flask сервера
         app.run(
