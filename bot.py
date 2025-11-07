@@ -4,9 +4,10 @@
 Запускает Flask сервер и регистрирует webhook.
 """
 import logging
+import requests
 from flask import Flask
 from webhook import webhook_bp
-from config import SERVER_HOST, SERVER_PORT
+from config import SERVER_HOST, SERVER_PORT, D360_BASE_URL, get_headers
 
 # Настройка логирования
 logging.basicConfig(
@@ -25,6 +26,120 @@ app = Flask(__name__)
 
 # Регистрация Blueprint с webhook
 app.register_blueprint(webhook_bp)
+
+
+def send_message(to: str, data: dict) -> bool:
+    """
+    Отправить сообщение через 360dialog API.
+    
+    Args:
+        to: Номер телефона получателя (формат: 79991234567)
+        data: Данные сообщения (text, interactive, и т.д.)
+    
+    Returns:
+        bool: True если отправлено успешно
+    """
+    url = f"{D360_BASE_URL}/v1/messages"
+    
+    payload = {
+        "recipient_type": "individual",
+        "to": to,
+        **data
+    }
+    
+    try:
+        logger.info(f"[SEND] Отправка сообщения {to}")
+        response = requests.post(url, json=payload, headers=get_headers(), timeout=10)
+        
+        if response.status_code in [200, 201]:
+            logger.info(f"[OK] Сообщение отправлено {to}")
+            return True
+        else:
+            logger.error(f"[ERROR] Ошибка отправки: {response.status_code} - {response.text}")
+            return False
+    
+    except Exception as e:
+        logger.error(f"[ERROR] Исключение при отправке: {e}", exc_info=True)
+        return False
+
+
+def send_buttons(to: str, text: str, buttons: list) -> bool:
+    """
+    Отправить сообщение с интерактивными кнопками.
+    
+    Args:
+        to: Номер телефона
+        text: Текст сообщения
+        buttons: Список кнопок [{"id": "btn1", "title": "Кнопка 1"}, ...]
+                 Максимум 3 кнопки
+    
+    Returns:
+        bool: True если отправлено успешно
+    """
+    button_components = []
+    for btn in buttons[:3]:  # Максимум 3 кнопки
+        button_components.append({
+            "type": "reply",
+            "reply": {
+                "id": btn["id"],
+                "title": btn["title"][:20]  # Максимум 20 символов
+            }
+        })
+    
+    data = {
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": text
+            },
+            "action": {
+                "buttons": button_components
+            }
+        }
+    }
+    
+    return send_message(to, data)
+
+
+def send_list(to: str, text: str, button_text: str, sections: list) -> bool:
+    """
+    Отправить сообщение со списком (list message).
+    
+    Args:
+        to: Номер телефона
+        text: Текст сообщения
+        button_text: Текст кнопки открытия списка
+        sections: Список секций со строками
+            Example:
+            [
+                {
+                    "title": "Секция 1",
+                    "rows": [
+                        {"id": "row1", "title": "Строка 1", "description": "Описание 1"},
+                        {"id": "row2", "title": "Строка 2", "description": "Описание 2"}
+                    ]
+                }
+            ]
+    
+    Returns:
+        bool: True если отправлено успешно
+    """
+    data = {
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {
+                "text": text
+            },
+            "action": {
+                "button": button_text,
+                "sections": sections
+            }
+        }
+    }
+    
+    return send_message(to, data)
 
 
 @app.route('/')

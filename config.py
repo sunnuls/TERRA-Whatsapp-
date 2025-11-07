@@ -38,6 +38,19 @@ if not D360_API_KEY:
 if not VERIFY_TOKEN:
     raise ValueError("ERROR: VERIFY_TOKEN not found in .env file!")
 
+def get_headers():
+    """
+    Возвращает заголовки для запросов к 360dialog API.
+    
+    Returns:
+        dict: Словарь с заголовками
+    """
+    return {
+        "Content-Type": "application/json",
+        "D360-API-KEY": D360_API_KEY
+    }
+
+
 print("[OK] Configuration loaded successfully")
 print(f"[API] 360dialog API URL: {D360_BASE_URL}")
 print(f"[KEY] API Key: {D360_API_KEY[:10]}...")
