@@ -7,11 +7,11 @@ import logging
 import requests
 from flask import Flask
 from webhook import webhook_bp
-from config import SERVER_HOST, SERVER_PORT, D360_BASE_URL, get_headers
+from config import SERVER_HOST, SERVER_PORT, D360_BASE_URL, get_headers, PHONE_NUMBER_ID
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Изменено на DEBUG для детальных логов
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('bot.log', encoding='utf-8'),
@@ -39,16 +39,21 @@ def send_message(to: str, data: dict) -> bool:
     Returns:
         bool: True если отправлено успешно
     """
+    # Для Meta Cloud API через 360dialog используем phone_number_id
     url = f"{D360_BASE_URL}/v1/messages"
     
     payload = {
-        "recipient_type": "individual",
+        "messaging_product": "whatsapp",
         "to": to,
         **data
     }
     
     try:
         logger.info(f"[SEND] Отправка сообщения {to}")
+        logger.debug(f"[DEBUG] URL: {url}")
+        logger.debug(f"[DEBUG] Payload: {payload}")
+        logger.debug(f"[DEBUG] Headers: {get_headers()}")
+        
         response = requests.post(url, json=payload, headers=get_headers(), timeout=10)
         
         if response.status_code in [200, 201]:
@@ -56,6 +61,7 @@ def send_message(to: str, data: dict) -> bool:
             return True
         else:
             logger.error(f"[ERROR] Ошибка отправки: {response.status_code} - {response.text}")
+            logger.error(f"[ERROR] Отправленный payload: {payload}")
             return False
     
     except Exception as e:

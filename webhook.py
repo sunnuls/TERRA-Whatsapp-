@@ -71,7 +71,18 @@ def webhook_receive():
         logger.info(f"[WEBHOOK] Получен webhook: {data}")
         
         # Обработка сообщений
-        messages = data.get('messages', [])
+        # 360dialog присылает данные в формате: entry[0].changes[0].value.messages
+        messages = []
+        
+        if 'entry' in data:
+            for entry in data.get('entry', []):
+                for change in entry.get('changes', []):
+                    value = change.get('value', {})
+                    messages.extend(value.get('messages', []))
+        
+        # Фоллбэк для прямого формата (если вдруг)
+        if not messages:
+            messages = data.get('messages', [])
         
         for message in messages:
             try:

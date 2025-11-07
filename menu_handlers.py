@@ -11,9 +11,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.state import get_state, set_state, clear_state, update_user_data, get_user_data, States
 from utils.sheets import save_entry
-from bot import send_message, send_buttons, send_list
 
 logger = logging.getLogger(__name__)
+
+# Импорт функций отправки (отложенный для избежания циклического импорта)
+def get_send_functions():
+    """Получить функции отправки сообщений (отложенный импорт)"""
+    from bot import send_message, send_buttons, send_list
+    return send_message, send_buttons, send_list
 
 # ============================================================================
 # КОНСТАНТЫ
@@ -100,6 +105,7 @@ def send_text_message(phone: str, text: str) -> bool:
     Returns:
         bool: True если отправлено успешно
     """
+    send_message, _, _ = get_send_functions()
     data = {
         "type": "text",
         "text": {
@@ -265,15 +271,15 @@ def handle_main_menu(phone: str):
     # Устанавливаем состояние
     set_state(phone, States.MAIN_MENU)
     
-    text = "🤖 Добро пожаловать в TERRA Bot!\n\nВыберите действие:"
+    # ВРЕМЕННО: отправляем простое текстовое сообщение для проверки API
+    text = """Добро пожаловать в TERRA Bot!
+
+Отправьте команду:
+1 - Работа
+2 - Часы
+3 - Помощь"""
     
-    buttons = [
-        {"id": "work_menu", "title": "📋 Работа"},
-        {"id": "hours_menu", "title": "⏰ Инфо о часах"},
-        {"id": "help_menu", "title": "❓ Помощь"}
-    ]
-    
-    send_buttons(phone, text, buttons)
+    send_text_message(phone, text)
 
 
 def handle_select_work(phone: str):
@@ -317,6 +323,7 @@ def handle_select_work(phone: str):
         }
     ]
     
+    _, _, send_list = get_send_functions()
     send_list(phone, text, button_text, sections)
 
 
@@ -359,6 +366,7 @@ def handle_select_shift(phone: str):
         }
     ]
     
+    _, _, send_list = get_send_functions()
     send_list(phone, text, button_text, sections)
 
 
@@ -407,6 +415,7 @@ def handle_select_hours(phone: str):
         }
     ]
     
+    _, _, send_list = get_send_functions()
     send_list(phone, text, button_text, sections)
 
 
@@ -438,6 +447,7 @@ def handle_show_confirmation(phone: str):
         {"id": "confirm_no", "title": "❌ Отмена"}
     ]
     
+    _, send_buttons, _ = get_send_functions()
     send_buttons(phone, text, buttons)
 
 

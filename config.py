@@ -12,6 +12,7 @@ load_dotenv()
 D360_API_KEY = os.getenv("D360_API_KEY")
 D360_BASE_URL = os.getenv("D360_BASE_URL", "https://waba-v2.360dialog.io")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "876646062208778")  # Из скриншота 360dialog
 
 # Google Sheets настройки
 SHEETS_CREDENTIALS = os.getenv("SHEETS_CREDENTIALS", "")  # Base64 encoded JSON или путь к файлу
