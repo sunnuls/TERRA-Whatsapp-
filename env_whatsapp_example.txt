@@ -1,0 +1,29 @@
+# WhatsApp Business API настройки
+# Получите эти данные в Meta Developers Console: https://developers.facebook.com/
+WHATSAPP_TOKEN=YOUR_WHATSAPP_ACCESS_TOKEN
+WHATSAPP_PHONE_ID=YOUR_WHATSAPP_PHONE_NUMBER_ID
+VERIFY_TOKEN=my_verify_token_123
+
+# Сервер
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8000
+
+# Админы (номера телефонов в формате 79991234567)
+ADMIN_IDS=79991234567,79997654321
+
+# Таймзона
+TZ=Europe/Moscow
+
+# Google Sheets настройки
+OAUTH_CLIENT_JSON=oauth_client.json
+TOKEN_JSON_PATH=token.json
+DRIVE_FOLDER_ID=your_google_drive_folder_id
+EXPORT_PREFIX=WorkLog
+
+# Автоматический экспорт
+AUTO_EXPORT_ENABLED=false
+AUTO_EXPORT_CRON=0 9 * * 1
+
+
+
+

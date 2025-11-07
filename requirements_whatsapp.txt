@@ -1,0 +1,11 @@
+pywa>=0.0.2
+python-dotenv
+google-api-python-client
+google-auth
+google-auth-oauthlib
+apscheduler>=3.10.0
+flask
+
+
+
+
