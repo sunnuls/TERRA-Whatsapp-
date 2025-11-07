@@ -33,13 +33,13 @@ TZ = os.getenv("TZ", "Europe/Moscow")
 
 # Проверка обязательных параметров
 if not D360_API_KEY:
-    raise ValueError("❌ D360_API_KEY не найден в .env файле!")
+    raise ValueError("ERROR: D360_API_KEY not found in .env file!")
 
 if not VERIFY_TOKEN:
-    raise ValueError("❌ VERIFY_TOKEN не найден в .env файле!")
+    raise ValueError("ERROR: VERIFY_TOKEN not found in .env file!")
 
-print("✅ Конфигурация загружена успешно")
-print(f"📡 360dialog API URL: {D360_BASE_URL}")
-print(f"🔑 API Key: {D360_API_KEY[:10]}...")
-print(f"👥 Админов: {len(ADMIN_IDS)}")
+print("[OK] Configuration loaded successfully")
+print(f"[API] 360dialog API URL: {D360_BASE_URL}")
+print(f"[KEY] API Key: {D360_API_KEY[:10]}...")
+print(f"[ADM] Admins count: {len(ADMIN_IDS)}")
 
