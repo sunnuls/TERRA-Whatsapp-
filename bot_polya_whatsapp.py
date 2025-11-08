@@ -16,6 +16,7 @@ from pywa import WhatsApp
 from pywa.types import Message as WAMessage, Button
 from pywa.filters import text
 from dotenv import load_dotenv
+from flask import Flask
 
 # Google Sheets API
 from google.oauth2.credentials import Credentials
@@ -814,20 +815,23 @@ def render_edit_records_page(client: WhatsApp, user_id: str, records: list, page
     
     client.send_message(to=user_id, text=text, buttons=buttons[:3])  # WA: hard limit 3
 
+# Инициализация Flask приложения
+app = Flask(__name__)
+
 # Инициализация WhatsApp клиента
 wa = WhatsApp(
     token=WHATSAPP_TOKEN,
     phone_id=WHATSAPP_PHONE_ID,
-    server_host=SERVER_HOST,
-    server_port=SERVER_PORT,
     verify_token=VERIFY_TOKEN,
+    server=app,
+    webhook_endpoint="/webhook",
 )
 
 # -----------------------------
 # Обработчики команд
 # -----------------------------
 
-@wa.on_message(text.matches("start", ignore_case=True))
+@wa.on_message(text == "start")
 def cmd_start(client: WhatsApp, msg: WAMessage):
     init_db()
     user_id = msg.from_user.wa_id
@@ -844,13 +848,13 @@ def cmd_start(client: WhatsApp, msg: WAMessage):
     
     show_main_menu(client, user_id, u)
 
-@wa.on_message(text.matches("menu", ignore_case=True))
+@wa.on_message(text == "menu")
 def cmd_menu(client: WhatsApp, msg: WAMessage):
     user_id = msg.from_user.wa_id
     u = get_user(user_id)
     show_main_menu(client, user_id, u)
 
-@wa.on_message(text.matches("today", ignore_case=True))
+@wa.on_message(text == "today")
 def cmd_today(client: WhatsApp, msg: WAMessage):
     user_id = msg.from_user.wa_id
     admin = is_admin(user_id)
@@ -892,7 +896,7 @@ def cmd_today(client: WhatsApp, msg: WAMessage):
     
     client.send_message(to=user_id, text=text)
 
-@wa.on_message(text.matches("my", ignore_case=True))
+@wa.on_message(text == "my")
 def cmd_my(client: WhatsApp, msg: WAMessage):
     user_id = msg.from_user.wa_id
     admin = is_admin(user_id)
@@ -1461,7 +1465,7 @@ def handle_callback(client: WhatsApp, btn):
 # Обработка текстовых сообщений (FSM)
 # -----------------------------
 
-@wa.on_message(text.text)
+@wa.on_message(text)
 def handle_text(client: WhatsApp, msg: WAMessage):
     user_id = msg.from_user.wa_id
     message_text = msg.text.strip()
@@ -1563,6 +1567,6 @@ if __name__ == "__main__":
     
     logging.info("🤖 WhatsApp бот запущен!")
     logging.info("📡 Слушаю на %s:%s", SERVER_HOST, SERVER_PORT)
-    wa.run()
+    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False)
 
 
