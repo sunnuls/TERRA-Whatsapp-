@@ -1468,7 +1468,23 @@ def handle_callback(client: WhatsApp, btn):
 @wa.on_message(text)
 def handle_text(client: WhatsApp, msg: WAMessage):
     user_id = msg.from_user.wa_id
-    message_text = msg.text.strip()
+    message_text = (msg.text or "").strip()
+    logging.info(f"[TEXT] {user_id}: {message_text}")
+    normalized = message_text.lower()
+
+    if normalized in {"start", "старт"}:
+        cmd_start(client, msg)
+        return
+    if normalized in {"menu", "меню"}:
+        cmd_menu(client, msg)
+        return
+    if normalized in {"today", "сегодня"}:
+        cmd_today(client, msg)
+        return
+    if normalized in {"my", "мои"}:
+        cmd_my(client, msg)
+        return
+
     state = get_state(user_id)
     current_state = state.get("state")
     

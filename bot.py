@@ -1,241 +1,277 @@
 # bot.py
 """
-Главный файл WhatsApp бота для 360dialog API.
-Запускает Flask сервер и регистрирует webhook.
+Главный файл WhatsApp-бота на Flask с интеграцией 360dialog.
+Обрабатывает вебхуки GET/POST, роутинг сообщений и интерактивные элементы.
 """
+
+import os
 import logging
-import requests
-from flask import Flask
-from webhook import webhook_bp
-from config import SERVER_HOST, SERVER_PORT, D360_BASE_URL, get_headers, PHONE_NUMBER_ID
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+from menu_handlers import (
+    send_main_menu,
+    handle_main_menu_button,
+    handle_shift_selection
+)
+
+# Загрузка переменных окружения
+load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.DEBUG,  # Изменено на DEBUG для детальных логов
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
 logger = logging.getLogger(__name__)
 
-# Создание Flask приложения
+# Инициализация Flask приложения
 app = Flask(__name__)
 
-# Регистрация Blueprint с webhook
-app.register_blueprint(webhook_bp)
+# Получение конфигурации из переменных окружения
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+PORT = int(os.getenv("PORT", 8000))
+MODE = os.getenv("MODE", "dev")
+
+# Проверка обязательных параметров
+if not VERIFY_TOKEN:
+    logger.error("❌ ОШИБКА: VERIFY_TOKEN не найден в .env файле!")
+    exit(1)
+
+if not os.getenv("D360_API_KEY"):
+    logger.error("❌ ОШИБКА: D360_API_KEY не найден в .env файле!")
+    exit(1)
 
 
-def send_message(to: str, data: dict) -> bool:
+@app.route('/webhook', methods=['GET'])
+def webhook_verify():
     """
-    Отправить сообщение через 360dialog API.
+    GET /webhook - верификация вебхука от 360dialog.
     
-    Args:
-        to: Номер телефона получателя (формат: 79991234567)
-        data: Данные сообщения (text, interactive, и т.д.)
+    360dialog отправляет GET запрос с параметрами:
+    - hub.mode: должен быть "subscribe"
+    - hub.verify_token: должен совпадать с VERIFY_TOKEN
+    - hub.challenge: строка, которую нужно вернуть для подтверждения
     
     Returns:
-        bool: True если отправлено успешно
+        - hub.challenge если токен совпадает
+        - 403 если токен не совпадает
     """
-    # Для Meta Cloud API через 360dialog используем phone_number_id
-    url = f"{D360_BASE_URL}/v1/messages"
+    # Получаем параметры из query string
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
     
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        **data
-    }
+    logger.info(f"📥 GET /webhook - mode={mode}, token={'***' if token else None}, challenge={'***' if challenge else None}")
     
-    try:
-        logger.info(f"[SEND] Отправка сообщения {to}")
-        logger.debug(f"[DEBUG] URL: {url}")
-        logger.debug(f"[DEBUG] Payload: {payload}")
-        logger.debug(f"[DEBUG] Headers: {get_headers()}")
-        
-        response = requests.post(url, json=payload, headers=get_headers(), timeout=10)
-        
-        if response.status_code in [200, 201]:
-            logger.info(f"[OK] Сообщение отправлено {to}")
-            return True
+    # Проверяем токен
+    if mode and token:
+        if mode == 'subscribe' and token == VERIFY_TOKEN:
+            logger.info("✅ Webhook verified successfully!")
+            # Возвращаем challenge для подтверждения
+            return challenge if challenge else "ok", 200
         else:
-            logger.error(f"[ERROR] Ошибка отправки: {response.status_code} - {response.text}")
-            logger.error(f"[ERROR] Отправленный payload: {payload}")
-            return False
+            logger.warning("⚠️ Verification token mismatch!")
+            return "Forbidden", 403
     
+    logger.warning("⚠️ Missing verification parameters")
+    return "Bad Request", 400
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook_handler():
+    """
+    POST /webhook - обработка входящих сообщений от 360dialog.
+    
+    Получает JSON payload с данными о входящих сообщениях, статусах и т.д.
+    Всегда возвращает 200 OK в течение 3 секунд (требование WhatsApp).
+    
+    Returns:
+        JSON response с статусом 200
+    """
+    # Безопасное чтение JSON (silent=True предотвращает exception при невалидном JSON)
+    data = request.get_json(silent=True)
+    
+    # Логируем полный payload для отладки
+    logger.info(f"📨 POST /webhook - Получен payload: {data}")
+    
+    # Проверяем что данные есть
+    if not data:
+        logger.warning("⚠️ Пустой или невалидный JSON payload")
+        return jsonify({"status": "ok"}), 200
+    
+    # Обрабатываем входящие сообщения в отдельной функции
+    try:
+        handle_incoming_message(data)
     except Exception as e:
-        logger.error(f"[ERROR] Исключение при отправке: {e}", exc_info=True)
-        return False
+        # Ловим все исключения чтобы всегда вернуть 200
+        logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
+    
+    # Всегда возвращаем 200 OK (требование WhatsApp API)
+    return jsonify({"status": "ok"}), 200
 
 
-def send_buttons(to: str, text: str, buttons: list) -> bool:
+def handle_incoming_message(data: dict):
     """
-    Отправить сообщение с интерактивными кнопками.
+    Обрабатывает входящие сообщения из webhook payload.
     
-    Args:
-        to: Номер телефона
-        text: Текст сообщения
-        buttons: Список кнопок [{"id": "btn1", "title": "Кнопка 1"}, ...]
-                 Максимум 3 кнопки
-    
-    Returns:
-        bool: True если отправлено успешно
-    """
-    button_components = []
-    for btn in buttons[:3]:  # Максимум 3 кнопки
-        button_components.append({
-            "type": "reply",
-            "reply": {
-                "id": btn["id"],
-                "title": btn["title"][:20]  # Максимум 20 символов
+    Структура payload от 360dialog/WhatsApp:
+    {
+      "entry": [
+        {
+          "changes": [
+            {
+              "value": {
+                "messages": [
+                  {
+                    "from": "79991234567",
+                    "type": "text" | "interactive",
+                    "text": {"body": "текст"},
+                    "interactive": {
+                      "type": "button_reply" | "list_reply",
+                      "button_reply": {"id": "BTN_ID", "title": "Кнопка"},
+                      "list_reply": {"id": "LIST_ID", "title": "Элемент"}
+                    }
+                  }
+                ]
+              }
             }
-        })
-    
-    data = {
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": text
-            },
-            "action": {
-                "buttons": button_components
-            }
+          ]
         }
+      ]
     }
     
-    return send_message(to, data)
-
-
-def send_list(to: str, text: str, button_text: str, sections: list) -> bool:
+    Args:
+        data: Словарь с данными от 360dialog
     """
-    Отправить сообщение со списком (list message).
+    # Защита от пустых/нестандартных payload'ов
+    try:
+        # Проходим по всем entry (обычно один элемент)
+        entries = data.get("entry", [])
+        if not entries:
+            logger.info("ℹ️ Нет entry в payload")
+            return
+        
+        for entry in entries:
+            # Проходим по всем changes
+            changes = entry.get("changes", [])
+            for change in changes:
+                # Получаем value с сообщениями
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                
+                # Обрабатываем каждое сообщение
+                for msg in messages:
+                    process_single_message(msg)
+                    
+    except Exception as e:
+        logger.error(f"❌ Ошибка в handle_incoming_message: {e}", exc_info=True)
+
+
+def process_single_message(msg: dict):
+    """
+    Обрабатывает одно входящее сообщение.
     
     Args:
-        to: Номер телефона
-        text: Текст сообщения
-        button_text: Текст кнопки открытия списка
-        sections: Список секций со строками
-            Example:
-            [
-                {
-                    "title": "Секция 1",
-                    "rows": [
-                        {"id": "row1", "title": "Строка 1", "description": "Описание 1"},
-                        {"id": "row2", "title": "Строка 2", "description": "Описание 2"}
-                    ]
-                }
-            ]
+        msg: Словарь с данными сообщения
+    """
+    try:
+        # Получаем номер отправителя (без +)
+        from_ = msg.get("from")
+        if not from_:
+            logger.warning("⚠️ Сообщение без поля 'from'")
+            return
+        
+        # Получаем тип сообщения
+        msg_type = msg.get("type")
+        
+        logger.info(f"💬 Сообщение от {from_}, тип: {msg_type}")
+        
+        # Обработка текстового сообщения
+        if msg_type == "text":
+            text_body = msg.get("text", {}).get("body", "").strip().lower()
+            logger.info(f"📝 Текст: {text_body}")
+            
+            # Команды запуска бота
+            if text_body in ["меню", "menu", "start", "старт", "привет"]:
+                send_main_menu(from_)
+            else:
+                # На любой другой текст тоже показываем меню
+                send_main_menu(from_)
+        
+        # Обработка интерактивных элементов (кнопки/списки)
+        elif msg_type == "interactive":
+            interactive = msg.get("interactive", {})
+            itype = interactive.get("type")
+            
+            logger.info(f"🎯 Интерактив, подтип: {itype}")
+            
+            # Обработка button_reply (ответ на кнопку)
+            if itype == "button_reply":
+                button_reply = interactive.get("button_reply", {})
+                button_id = button_reply.get("id")
+                button_title = button_reply.get("title")
+                
+                logger.info(f"🔘 Кнопка: id={button_id}, title={button_title}")
+                
+                # Обрабатываем кнопку главного меню
+                if button_id:
+                    handle_main_menu_button(from_, button_id)
+            
+            # Обработка list_reply (выбор из списка)
+            elif itype == "list_reply":
+                list_reply = interactive.get("list_reply", {})
+                list_id = list_reply.get("id")
+                list_title = list_reply.get("title")
+                
+                logger.info(f"📋 Список: id={list_id}, title={list_title}")
+                
+                # Обрабатываем выбор смены
+                if list_id:
+                    handle_shift_selection(from_, list_id, list_title)
+        
+        else:
+            logger.info(f"ℹ️ Неподдерживаемый тип сообщения: {msg_type}")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка в process_single_message: {e}", exc_info=True)
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Простой health check endpoint для проверки работоспособности сервера.
     
     Returns:
-        bool: True если отправлено успешно
+        JSON с информацией о статусе
     """
-    data = {
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "body": {
-                "text": text
-            },
-            "action": {
-                "button": button_text,
-                "sections": sections
-            }
-        }
-    }
-    
-    return send_message(to, data)
+    return jsonify({
+        "status": "ok",
+        "service": "whatsapp-bot",
+        "mode": MODE
+    }), 200
 
 
-@app.route('/')
+@app.route('/', methods=['GET'])
 def index():
     """
-    Главная страница (для проверки работы сервера).
-    """
-    return '''
-    <html>
-        <head>
-            <title>WhatsApp Bot 360dialog</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    max-width: 800px;
-                    margin: 50px auto;
-                    padding: 20px;
-                    background: #f5f5f5;
-                }
-                .container {
-                    background: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }
-                h1 { color: #25D366; }
-                .status { 
-                    color: #25D366; 
-                    font-weight: bold;
-                }
-                ul { 
-                    line-height: 2;
-                    list-style: none;
-                }
-                li:before {
-                    content: "✅ ";
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🤖 WhatsApp Bot 360dialog</h1>
-                <p class="status">✅ Сервер работает</p>
-                <h3>Доступные endpoints:</h3>
-                <ul>
-                    <li><code>GET /webhook</code> - верификация webhook</li>
-                    <li><code>POST /webhook</code> - приём сообщений</li>
-                    <li><code>GET /health</code> - проверка здоровья</li>
-                </ul>
-            </div>
-        </body>
-    </html>
-    '''
-
-
-def main():
-    """
-    Запуск Flask сервера.
-    """
-    logger.info("=" * 60)
-    logger.info("🚀 Запуск WhatsApp бота для 360dialog")
-    logger.info("=" * 60)
-    logger.info(f"📡 Сервер: http://{SERVER_HOST}:{SERVER_PORT}")
-    logger.info(f"🔗 Webhook URL: http://{SERVER_HOST}:{SERVER_PORT}/webhook")
-    logger.info("=" * 60)
+    Корневой endpoint для проверки что сервер запущен.
     
-    # Инициализация Google Sheets
-    logger.info("📊 Инициализация Google Sheets...")
-    from utils.sheets import init_sheets
-    if init_sheets():
-        logger.info("✅ Google Sheets готов к работе")
-    else:
-        logger.warning("⚠️ Google Sheets не инициализирован (работа продолжится без сохранения в таблицу)")
+    Returns:
+        Простой текстовый ответ
+    """
+    return "WhatsApp Bot is running! 🤖", 200
+
+
+if __name__ == '__main__':
+    logger.info("=" * 50)
+    logger.info("🤖 WhatsApp Bot Starting...")
+    logger.info("=" * 50)
+    logger.info(f"📡 Mode: {MODE}")
+    logger.info(f"🔐 Verify Token: {'***' if VERIFY_TOKEN else 'NOT SET'}")
+    logger.info(f"🔑 API Key: {'***' if os.getenv('D360_API_KEY') else 'NOT SET'}")
+    logger.info(f"🌐 Server: 0.0.0.0:{PORT}")
+    logger.info("=" * 50)
     
-    logger.info("=" * 60)
-    
-    try:
-        # Запуск Flask сервера
-        app.run(
-            host=SERVER_HOST,
-            port=SERVER_PORT,
-            debug=False,  # В продакшене должен быть False
-            use_reloader=False
-        )
-    except KeyboardInterrupt:
-        logger.info("\n👋 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
-
-
-if __name__ == "__main__":
-    main()
-
+    # Запуск Flask приложения
+    # host=0.0.0.0 позволяет принимать соединения извне (не только localhost)
+    app.run(host="0.0.0.0", port=PORT, debug=(MODE == "dev"))

@@ -1,554 +1,153 @@
 # menu_handlers.py
 """
-Обработчики меню и FSM (машина состояний) бота.
+Обработчики меню и логика взаимодействия с пользователем.
+Содержит функции для отправки меню, обработки выбора смен и статистики.
 """
+
 import logging
-import sys
-import os
-
-# Добавляем корневую директорию в PYTHONPATH
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from utils.state import get_state, set_state, clear_state, update_user_data, get_user_data, States
-from utils.sheets import save_entry
+from datetime import date
+from typing import Optional
+from utils.api_360 import send_text, send_interactive_buttons, send_interactive_list
+from storage.attendance import save_attendance, get_last_entries
+from constants import (
+    BTN_FILL_TODAY, BTN_FILL_RANGE, BTN_MY_STATUS,
+    SHIFT_DAY, SHIFT_NIGHT, SHIFT_OFF, SHIFT_NAMES,
+    MSG_MAIN_MENU, MSG_SHIFT_SELECT, MSG_SHIFT_SAVED, 
+    MSG_RANGE_COMING_SOON, MSG_NO_RECORDS
+)
 
 logger = logging.getLogger(__name__)
 
-# Импорт функций отправки (отложенный для избежания циклического импорта)
-def get_send_functions():
-    """Получить функции отправки сообщений (отложенный импорт)"""
-    from bot import send_message, send_buttons, send_list
-    return send_message, send_buttons, send_list
 
-# ============================================================================
-# КОНСТАНТЫ
-# ============================================================================
-
-# Типы работ
-WORK_TYPES = {
-    "work_field": "Поле",
-    "work_zucchini": "Кабачок",
-    "work_potato": "Картошка",
-    "work_other": "Другое"
-}
-
-# Смены
-SHIFTS = {
-    "shift_1": {"title": "Смена 1 (8-16)", "hours": "8-16"},
-    "shift_2": {"title": "Смена 2 (16-00)", "hours": "16-00"},
-    "shift_3": {"title": "Смена 3 (00-8)", "hours": "00-8"}
-}
-
-# Количество часов
-HOURS_OPTIONS = {
-    "hours_4": "4",
-    "hours_6": "6",
-    "hours_8": "8",
-    "hours_12": "12"
-}
-
-# ============================================================================
-# ГЛАВНЫЙ ОБРАБОТЧИК ВХОДЯЩИХ СООБЩЕНИЙ
-# ============================================================================
-
-def handle_incoming_message(message: dict):
+def send_main_menu(to: str) -> bool:
     """
-    Главный обработчик входящих сообщений с поддержкой FSM.
+    Отправляет главное меню с интерактивными кнопками.
     
     Args:
-        message: Словарь с данными сообщения от 360dialog
-    """
-    try:
-        # Извлекаем данные из сообщения
-        phone = message.get('from')
-        message_type = message.get('type')
-        
-        logger.info(f"[HANDLER] Обработка сообщения от {phone}, тип: {message_type}")
-        
-        # Получаем текущее состояние пользователя
-        user_state = get_state(phone)
-        current_state = user_state.get('state')
-        
-        logger.info(f"[FSM] Текущее состояние {phone}: {current_state}")
-        
-        # Обработка текстовых сообщений
-        if message_type == 'text':
-            text_body = message.get('text', {}).get('body', '').strip()
-            handle_text_message(phone, text_body, current_state)
-        
-        # Обработка кнопок (button_reply)
-        elif 'button_id' in message:
-            button_id = message.get('button_id')
-            handle_button_click(phone, button_id, current_state)
-        
-        # Обработка списков (list_reply)
-        elif 'list_id' in message:
-            list_id = message.get('list_id')
-            handle_list_selection(phone, list_id, current_state)
-        
-        else:
-            logger.info(f"[WARN] Неподдерживаемый тип сообщения: {message_type}")
-            send_text_message(phone, "Извините, я поддерживаю только текстовые сообщения и интерактивные элементы.")
-    
-    except Exception as e:
-        logger.error(f"[ERROR] Ошибка в handle_incoming_message: {e}", exc_info=True)
-
-
-def send_text_message(phone: str, text: str) -> bool:
-    """
-    Отправить текстовое сообщение.
-    
-    Args:
-        phone: Номер телефона
-        text: Текст сообщения
+        to: Номер телефона получателя
     
     Returns:
         bool: True если отправлено успешно
     """
-    send_message, _, _ = get_send_functions()
-    data = {
-        "type": "text",
-        "text": {
-            "body": text
-        }
-    }
-    return send_message(phone, data)
-
-
-# ============================================================================
-# ОБРАБОТЧИКИ ТЕКСТОВЫХ СООБЩЕНИЙ
-# ============================================================================
-
-def handle_text_message(phone: str, text: str, current_state: str):
-    """
-    Обработка текстовых сообщений с учетом FSM.
-    
-    Args:
-        phone: Номер телефона
-        text: Текст сообщения
-        current_state: Текущее состояние FSM
-    """
-    logger.info(f"💬 [TEXT] {phone}: {text} (состояние: {current_state})")
-    
-    # Команды, которые работают из любого состояния
-    text_lower = text.lower()
-    
-    if text_lower in ['start', 'старт', 'меню', 'menu', '/start']:
-        handle_main_menu(phone)
-        return
-    
-    elif text_lower in ['help', 'помощь', '/help']:
-        handle_help(phone)
-        return
-    
-    elif text_lower in ['cancel', 'отмена', 'стоп', 'stop']:
-        clear_state(phone)
-        send_text_message(phone, "Действие отменено. Возвращаю в главное меню.")
-        handle_main_menu(phone)
-        return
-    
-    # Обработка в зависимости от состояния FSM
-    # (Для текущей реализации не требуется, так как используем интерактивные элементы)
-    
-    # По умолчанию показываем главное меню
-    send_text_message(phone, "Не понял команду. Отправляю главное меню...")
-    handle_main_menu(phone)
-
-
-# ============================================================================
-# ОБРАБОТЧИКИ КНОПОК
-# ============================================================================
-
-def handle_button_click(phone: str, button_id: str, current_state: str):
-    """
-    Обработка нажатий на кнопки с учетом FSM.
-    
-    Args:
-        phone: Номер телефона
-        button_id: ID нажатой кнопки
-        current_state: Текущее состояние FSM
-    """
-    logger.info(f"[BUTTON] {phone} нажал: {button_id} (состояние: {current_state})")
-    
-    # Глобальные кнопки (работают из любого состояния)
-    if button_id == 'main_menu':
-        handle_main_menu(phone)
-    
-    elif button_id == 'help_menu':
-        handle_help(phone)
-    
-    # Кнопки главного меню
-    elif button_id == 'work_menu':
-        handle_select_work(phone)
-    
-    elif button_id == 'hours_menu':
-        handle_hours_info(phone)
-    
-    # Кнопки подтверждения
-    elif button_id == 'confirm_yes':
-        handle_confirm_save(phone, confirmed=True)
-    
-    elif button_id == 'confirm_no':
-        handle_confirm_save(phone, confirmed=False)
-    
-    else:
-        logger.warning(f"[WARN] Неизвестная кнопка: {button_id}")
-        send_text_message(phone, "Команда не распознана. Используйте меню.")
-        handle_main_menu(phone)
-
-
-# ============================================================================
-# ОБРАБОТЧИКИ СПИСКОВ
-# ============================================================================
-
-def handle_list_selection(phone: str, list_id: str, current_state: str):
-    """
-    Обработка выбора из списка с учетом FSM.
-    
-    Args:
-        phone: Номер телефона
-        list_id: ID выбранной строки списка
-        current_state: Текущее состояние FSM
-    """
-    logger.info(f"[LIST] {phone} выбрал: {list_id} (состояние: {current_state})")
-    
-    # Обработка в зависимости от состояния FSM
-    if current_state == States.SELECT_WORK:
-        # Пользователь выбрал тип работы
-        if list_id in WORK_TYPES:
-            work_name = WORK_TYPES[list_id]
-            update_user_data(phone, 'work', work_name)
-            update_user_data(phone, 'work_id', list_id)
-            logger.info(f"[FSM] {phone}: Работа выбрана - {work_name}")
-            handle_select_shift(phone)
-        else:
-            send_text_message(phone, "Ошибка: неизвестный тип работы.")
-            handle_select_work(phone)
-    
-    elif current_state == States.SELECT_SHIFT:
-        # Пользователь выбрал смену
-        if list_id in SHIFTS:
-            shift_info = SHIFTS[list_id]
-            shift_title = shift_info['title']
-            shift_hours = shift_info['hours']
-            update_user_data(phone, 'shift', shift_hours)
-            update_user_data(phone, 'shift_id', list_id)
-            logger.info(f"[FSM] {phone}: Смена выбрана - {shift_title}")
-            handle_select_hours(phone)
-        else:
-            send_text_message(phone, "Ошибка: неизвестная смена.")
-            handle_select_shift(phone)
-    
-    elif current_state == States.SELECT_HOURS:
-        # Пользователь выбрал количество часов
-        if list_id in HOURS_OPTIONS:
-            hours = HOURS_OPTIONS[list_id]
-            update_user_data(phone, 'hours', hours)
-            update_user_data(phone, 'hours_id', list_id)
-            logger.info(f"[FSM] {phone}: Часы выбраны - {hours}")
-            handle_show_confirmation(phone)
-        else:
-            send_text_message(phone, "Ошибка: неизвестное количество часов.")
-            handle_select_hours(phone)
-    
-    else:
-        logger.warning(f"[WARN] Выбор списка в неожиданном состоянии: {current_state}")
-        send_text_message(phone, "Произошла ошибка. Начните сначала.")
-        handle_main_menu(phone)
-
-
-# ============================================================================
-# FSM HANDLERS - Обработчики состояний FSM
-# ============================================================================
-
-def handle_main_menu(phone: str):
-    """
-    Состояние: MAIN_MENU
-    Главное меню бота с интерактивными кнопками.
-    """
-    logger.info(f"[FSM] {phone}: MAIN_MENU")
-    
-    # Устанавливаем состояние
-    set_state(phone, States.MAIN_MENU)
-    
-    # ВРЕМЕННО: отправляем простое текстовое сообщение для проверки API
-    text = """Добро пожаловать в TERRA Bot!
-
-Отправьте команду:
-1 - Работа
-2 - Часы
-3 - Помощь"""
-    
-    send_text_message(phone, text)
-
-
-def handle_select_work(phone: str):
-    """
-    Состояние: SELECT_WORK
-    Выбор типа работы из списка.
-    """
-    logger.info(f"[FSM] {phone}: SELECT_WORK")
-    
-    # Устанавливаем состояние
-    set_state(phone, States.SELECT_WORK)
-    
-    text = "📋 Выберите тип работы:"
-    button_text = "Выбрать работу"
-    
-    sections = [
-        {
-            "title": "Доступные работы",
-            "rows": [
-                {
-                    "id": "work_field",
-                    "title": "🌾 Поле",
-                    "description": "Работа на поле"
-                },
-                {
-                    "id": "work_zucchini",
-                    "title": "🥒 Кабачок",
-                    "description": "Работа с кабачками"
-                },
-                {
-                    "id": "work_potato",
-                    "title": "🥔 Картошка",
-                    "description": "Работа с картошкой"
-                },
-                {
-                    "id": "work_other",
-                    "title": "📦 Другое",
-                    "description": "Другой тип работы"
-                }
-            ]
-        }
-    ]
-    
-    _, _, send_list = get_send_functions()
-    send_list(phone, text, button_text, sections)
-
-
-def handle_select_shift(phone: str):
-    """
-    Состояние: SELECT_SHIFT
-    Выбор смены из списка.
-    """
-    logger.info(f"[FSM] {phone}: SELECT_SHIFT")
-    
-    # Устанавливаем состояние
-    set_state(phone, States.SELECT_SHIFT)
-    
-    # Получаем выбранную работу
-    work = get_user_data(phone, 'work', 'Работа')
-    
-    text = f"✅ Работа выбрана: {work}\n\n⏰ Теперь выберите смену:"
-    button_text = "Выбрать смену"
-    
-    sections = [
-        {
-            "title": "Доступные смены",
-            "rows": [
-                {
-                    "id": "shift_1",
-                    "title": "☀️ Смена 1 (8-16)",
-                    "description": "Дневная смена с 08:00 до 16:00"
-                },
-                {
-                    "id": "shift_2",
-                    "title": "🌆 Смена 2 (16-00)",
-                    "description": "Вечерняя смена с 16:00 до 00:00"
-                },
-                {
-                    "id": "shift_3",
-                    "title": "🌙 Смена 3 (00-8)",
-                    "description": "Ночная смена с 00:00 до 08:00"
-                }
-            ]
-        }
-    ]
-    
-    _, _, send_list = get_send_functions()
-    send_list(phone, text, button_text, sections)
-
-
-def handle_select_hours(phone: str):
-    """
-    Состояние: SELECT_HOURS
-    Выбор количества часов из списка.
-    """
-    logger.info(f"[FSM] {phone}: SELECT_HOURS")
-    
-    # Устанавливаем состояние
-    set_state(phone, States.SELECT_HOURS)
-    
-    # Получаем выбранные данные
-    work = get_user_data(phone, 'work', 'Работа')
-    shift = get_user_data(phone, 'shift', 'Смена')
-    
-    text = f"✅ Работа: {work}\n✅ Смена: {shift}\n\n⏱️ Выберите количество часов:"
-    button_text = "Выбрать часы"
-    
-    sections = [
-        {
-            "title": "Количество часов",
-            "rows": [
-                {
-                    "id": "hours_4",
-                    "title": "4 часа",
-                    "description": "Отработано 4 часа"
-                },
-                {
-                    "id": "hours_6",
-                    "title": "6 часов",
-                    "description": "Отработано 6 часов"
-                },
-                {
-                    "id": "hours_8",
-                    "title": "8 часов",
-                    "description": "Отработано 8 часов"
-                },
-                {
-                    "id": "hours_12",
-                    "title": "12 часов",
-                    "description": "Отработано 12 часов"
-                }
-            ]
-        }
-    ]
-    
-    _, _, send_list = get_send_functions()
-    send_list(phone, text, button_text, sections)
-
-
-def handle_show_confirmation(phone: str):
-    """
-    Состояние: CONFIRM_SAVE
-    Показать данные и запросить подтверждение.
-    """
-    logger.info(f"[FSM] {phone}: CONFIRM_SAVE (показ)")
-    
-    # Устанавливаем состояние
-    set_state(phone, States.CONFIRM_SAVE)
-    
-    # Получаем все данные
-    work = get_user_data(phone, 'work', 'Не указано')
-    shift = get_user_data(phone, 'shift', 'Не указано')
-    hours = get_user_data(phone, 'hours', 'Не указано')
-    
-    text = f"""📝 Проверьте данные перед сохранением:
-
-▫️ Работа: {work}
-▫️ Смена: {shift}
-▫️ Часов: {hours}
-
-Все верно?"""
-    
     buttons = [
-        {"id": "confirm_yes", "title": "✅ Подтвердить"},
-        {"id": "confirm_no", "title": "❌ Отмена"}
+        {"id": BTN_FILL_TODAY, "title": "Заполнить за сегодня"},
+        {"id": BTN_FILL_RANGE, "title": "Заполнить за период"},
+        {"id": BTN_MY_STATUS, "title": "Мой статус"}
     ]
     
-    _, send_buttons, _ = get_send_functions()
-    send_buttons(phone, text, buttons)
+    logger.info(f"📋 Отправка главного меню → {to}")
+    return send_interactive_buttons(to, MSG_MAIN_MENU, buttons)
 
 
-def handle_confirm_save(phone: str, confirmed: bool):
+def send_shift_list(to: str) -> bool:
     """
-    Обработка подтверждения/отмены сохранения.
+    Отправляет интерактивный список для выбора смены.
     
     Args:
-        phone: Номер телефона
-        confirmed: True если пользователь подтвердил, False если отменил
-    """
-    logger.info(f"[FSM] {phone}: CONFIRM_SAVE (обработка: {'Да' if confirmed else 'Нет'})")
+        to: Номер телефона получателя
     
-    if confirmed:
-        # Получаем данные из состояния
-        work = get_user_data(phone, 'work')
-        shift = get_user_data(phone, 'shift')
-        hours = get_user_data(phone, 'hours')
-        
-        if not work or not shift or not hours:
-            send_text_message(phone, "❌ Ошибка: не все данные заполнены. Начните сначала.")
-            clear_state(phone)
-            handle_main_menu(phone)
-            return
-        
-        # Сохраняем запись
-        success = save_entry(phone, work, shift, hours)
-        
-        if success:
-            send_text_message(phone, f"""✅ Запись успешно сохранена!
+    Returns:
+        bool: True если отправлено успешно
+    """
+    rows = [
+        {"id": SHIFT_DAY, "title": SHIFT_NAMES[SHIFT_DAY]},
+        {"id": SHIFT_NIGHT, "title": SHIFT_NAMES[SHIFT_NIGHT]},
+        {"id": SHIFT_OFF, "title": SHIFT_NAMES[SHIFT_OFF]}
+    ]
+    
+    logger.info(f"⏰ Отправка списка смен → {to}")
+    return send_interactive_list(to, MSG_SHIFT_SELECT, "Смены", rows)
 
-📋 Работа: {work}
-⏰ Смена: {shift}
-⏱️ Часов: {hours}
 
-Спасибо! Возвращаю в главное меню...""")
-        else:
-            send_text_message(phone, "❌ Ошибка при сохранении данных. Попробуйте позже.")
-        
-        # Очищаем состояние и возвращаем в главное меню
-        clear_state(phone)
-        handle_main_menu(phone)
+def handle_main_menu_button(to: str, button_id: str) -> bool:
+    """
+    Обрабатывает нажатие кнопки главного меню.
+    
+    Args:
+        to: Номер телефона пользователя
+        button_id: ID нажатой кнопки
+    
+    Returns:
+        bool: True если обработано успешно
+    """
+    logger.info(f"🔘 Обработка кнопки главного меню: {button_id} от {to}")
+    
+    if button_id == BTN_FILL_TODAY:
+        # Показываем список смен для заполнения за сегодня
+        return send_shift_list(to)
+    
+    elif button_id == BTN_FILL_RANGE:
+        # Пока не реализовано - отправляем заглушку
+        return send_text(to, MSG_RANGE_COMING_SOON)
+    
+    elif button_id == BTN_MY_STATUS:
+        # Показываем последние 3 записи пользователя
+        return show_user_status(to)
     
     else:
-        # Пользователь отменил
-        send_text_message(phone, "❌ Сохранение отменено. Возвращаю в главное меню...")
-        clear_state(phone)
-        handle_main_menu(phone)
+        logger.warning(f"⚠️ Неизвестная кнопка главного меню: {button_id}")
+        return send_text(to, "Неизвестная команда. Попробуйте снова.")
 
 
-# ============================================================================
-# ДОПОЛНИТЕЛЬНЫЕ ОБРАБОТЧИКИ
-# ============================================================================
-
-def handle_hours_info(phone: str):
+def handle_shift_selection(to: str, shift_id: str, title: Optional[str] = None) -> bool:
     """
-    Информация о часах работы (не меняет состояние FSM).
+    Обрабатывает выбор смены из списка.
+    
+    Args:
+        to: Номер телефона пользователя
+        shift_id: ID выбранной смены (SHIFT_DAY, SHIFT_NIGHT, SHIFT_OFF)
+        title: Название выбранной смены (опционально, для логирования)
+    
+    Returns:
+        bool: True если обработано успешно
     """
-    logger.info(f"[INFO] {phone}: Информация о часах")
+    logger.info(f"✅ Выбор смены: {shift_id} ({title or 'N/A'}) от {to}")
     
-    text = """⏰ Информация о рабочих часах
-
-Доступные варианты:
-• 4 часа - неполная смена
-• 6 часов - сокращенная смена
-• 8 часов - стандартная смена
-• 12 часов - удлиненная смена
-
-Для учета рабочего времени используйте меню "Работа"."""
+    # Проверяем что это корректная смена
+    if shift_id not in SHIFT_NAMES:
+        logger.warning(f"⚠️ Неизвестный ID смены: {shift_id}")
+        return send_text(to, "Неизвестная смена. Попробуйте снова.")
     
-    send_text_message(phone, text)
+    # Получаем название смены и текущую дату
+    shift_name = SHIFT_NAMES[shift_id]
+    today = date.today().isoformat()  # Формат: YYYY-MM-DD
     
-    # Возвращаем в главное меню
-    handle_main_menu(phone)
+    # Сохраняем запись о смене
+    try:
+        save_attendance(to, today, shift_name)
+        logger.info(f"💾 Смена сохранена: {to} / {today} / {shift_name}")
+        return send_text(to, MSG_SHIFT_SAVED)
+    except Exception as e:
+        logger.error(f"❌ Ошибка сохранения смены: {e}", exc_info=True)
+        return send_text(to, "Ошибка при сохранении. Попробуйте позже.")
 
 
-def handle_help(phone: str):
+def show_user_status(to: str) -> bool:
     """
-    Справка по использованию бота.
+    Показывает последние 3 записи пользователя.
+    
+    Args:
+        to: Номер телефона пользователя
+    
+    Returns:
+        bool: True если отправлено успешно
     """
-    logger.info(f"[HELP] {phone}: Помощь")
+    logger.info(f"📊 Запрос статуса от {to}")
     
-    text = """❓ Справка по боту TERRA
-
-📱 Команды:
-• start / menu - Главное меню
-• help - Эта справка
-• cancel / отмена - Отменить текущее действие
-
-📋 Как пользоваться:
-1. Выберите "Работа" в главном меню
-2. Укажите тип работы
-3. Выберите смену
-4. Укажите количество часов
-5. Подтвердите сохранение
-
-💡 Используйте кнопки и списки для навигации!
-
-По вопросам обращайтесь к администратору."""
+    # Получаем последние 3 записи
+    entries = get_last_entries(to, n=3)
     
-    send_text_message(phone, text)
+    if not entries:
+        return send_text(to, MSG_NO_RECORDS)
     
-    # Показываем главное меню
-    handle_main_menu(phone)
+    # Формируем текст с записями
+    lines = ["Ваши последние записи:"]
+    for entry in entries:
+        entry_date = entry.get("date", "Н/Д")
+        entry_shift = entry.get("shift", "Н/Д")
+        lines.append(f"{entry_date} — {entry_shift}")
+    
+    status_text = "\n".join(lines)
+    
+    logger.info(f"📤 Отправка статуса ({len(entries)} записей) → {to}")
+    return send_text(to, status_text)

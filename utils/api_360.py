@@ -1,36 +1,48 @@
 # utils/api_360.py
 """
-Взаимодействие с API 360dialog для отправки сообщений.
+HTTP-клиент для работы с 360dialog WhatsApp Business API.
+Содержит функции для отправки текстовых сообщений, интерактивных кнопок и списков.
 """
+
+import os
 import logging
 import requests
 from typing import List, Dict, Optional
-from config import D360_API_KEY, D360_BASE_URL
+from constants import D360_BASE_URL, HTTP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
+# Получаем API ключ из переменных окружения
+D360_API_KEY = os.getenv("D360_API_KEY")
 
-def send_text_message(user_id: str, text: str) -> bool:
+
+def _get_headers() -> dict:
     """
-    Отправить текстовое сообщение пользователю.
-    
-    Args:
-        user_id: Номер телефона получателя (формат: 79991234567)
-        text: Текст сообщения (поддерживает WhatsApp форматирование)
+    Возвращает заголовки для запросов к 360dialog API.
     
     Returns:
-        True если отправлено успешно, False в случае ошибки
+        dict: Словарь с заголовками
     """
-    url = f"{D360_BASE_URL}/v1/messages"
-    
-    headers = {
+    return {
         "D360-API-KEY": D360_API_KEY,
         "Content-Type": "application/json"
     }
+
+
+def send_text(to: str, text: str) -> bool:
+    """
+    Отправляет текстовое сообщение пользователю.
     
+    Args:
+        to: Номер телефона получателя (без +, например: 79991234567)
+        text: Текст сообщения (поддерживает WhatsApp форматирование)
+    
+    Returns:
+        bool: True если отправлено успешно, False в случае ошибки
+    """
     payload = {
         "recipient_type": "individual",
-        "to": user_id,
+        "to": to,
         "type": "text",
         "text": {
             "body": text
@@ -38,60 +50,61 @@ def send_text_message(user_id: str, text: str) -> bool:
     }
     
     try:
-        logger.info(f"📤 Отправка текста пользователю {user_id}")
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        logger.info(f"📤 Отправка текста → {to}")
+        response = requests.post(
+            D360_BASE_URL,
+            json=payload,
+            headers=_get_headers(),
+            timeout=HTTP_TIMEOUT
+        )
         
-        if response.status_code == 200 or response.status_code == 201:
-            logger.info(f"✅ Сообщение отправлено {user_id}")
+        if response.status_code in [200, 201]:
+            logger.info(f"✅ Текст отправлен → {to}")
             return True
         else:
-            logger.error(f"❌ Ошибка отправки: {response.status_code} - {response.text}")
+            logger.error(f"❌ Ошибка {response.status_code}: {response.text}")
             return False
-    
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"⏱️ Timeout при отправке сообщения → {to}")
+        return False
     except Exception as e:
         logger.error(f"❌ Исключение при отправке: {e}", exc_info=True)
         return False
 
 
-def send_buttons(user_id: str, text: str, buttons: List[Dict[str, str]]) -> bool:
+def send_interactive_buttons(to: str, body_text: str, buttons_list: List[Dict[str, str]]) -> bool:
     """
-    Отправить сообщение с кнопками (interactive message).
+    Отправляет интерактивное сообщение с кнопками (reply buttons).
     
     Args:
-        user_id: Номер телефона получателя
-        text: Текст сообщения
-        buttons: Список кнопок [{"id": "btn1", "title": "Кнопка 1"}, ...]
-                 Максимум 3 кнопки по ограничениям WhatsApp
+        to: Номер телефона получателя
+        body_text: Текст сообщения
+        buttons_list: Список кнопок, например: [{"id": "BTN_ID", "title": "Кнопка"}, ...]
+                     Максимум 3 кнопки (ограничение WhatsApp)
     
     Returns:
-        True если отправлено успешно
+        bool: True если отправлено успешно
     """
-    url = f"{D360_BASE_URL}/v1/messages"
-    
-    headers = {
-        "D360-API-KEY": D360_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
     # Формируем кнопки в формате 360dialog
     button_components = []
-    for btn in buttons[:3]:  # Максимум 3 кнопки
+    for btn in buttons_list[:3]:  # Максимум 3 кнопки
         button_components.append({
             "type": "reply",
             "reply": {
                 "id": btn["id"],
-                "title": btn["title"][:20]  # Максимум 20 символов
+                "title": btn["title"][:20]  # Максимум 20 символов для title
             }
         })
     
     payload = {
         "recipient_type": "individual",
-        "to": user_id,
+        "to": to,
         "type": "interactive",
         "interactive": {
             "type": "button",
             "body": {
-                "text": text
+                "text": body_text
             },
             "action": {
                 "buttons": button_components
@@ -100,93 +113,97 @@ def send_buttons(user_id: str, text: str, buttons: List[Dict[str, str]]) -> bool
     }
     
     try:
-        logger.info(f"📤 Отправка кнопок пользователю {user_id}")
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        logger.info(f"📤 Отправка кнопок ({len(button_components)} шт) → {to}")
+        response = requests.post(
+            D360_BASE_URL,
+            json=payload,
+            headers=_get_headers(),
+            timeout=HTTP_TIMEOUT
+        )
         
-        if response.status_code == 200 or response.status_code == 201:
-            logger.info(f"✅ Кнопки отправлены {user_id}")
+        if response.status_code in [200, 201]:
+            logger.info(f"✅ Кнопки отправлены → {to}")
             return True
         else:
-            logger.error(f"❌ Ошибка отправки кнопок: {response.status_code} - {response.text}")
+            logger.error(f"❌ Ошибка {response.status_code}: {response.text}")
             return False
-    
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"⏱️ Timeout при отправке кнопок → {to}")
+        return False
     except Exception as e:
         logger.error(f"❌ Исключение при отправке кнопок: {e}", exc_info=True)
         return False
 
 
-def send_list_message(user_id: str, text: str, button_text: str, sections: List[Dict]) -> bool:
+def send_interactive_list(to: str, body_text: str, section_title: str, rows: List[Dict[str, str]]) -> bool:
     """
-    Отправить сообщение со списком (list message).
+    Отправляет интерактивное сообщение со списком (list message).
     
     Args:
-        user_id: Номер телефона получателя
-        text: Текст сообщения
-        button_text: Текст кнопки открытия списка
-        sections: Список секций с элементами
+        to: Номер телефона получателя
+        body_text: Текст сообщения
+        section_title: Заголовок секции списка
+        rows: Список элементов, например:
+              [{"id": "ROW_ID", "title": "Заголовок", "description": "Описание"}, ...]
+              description - опционально
     
     Returns:
-        True если отправлено успешно
+        bool: True если отправлено успешно
     """
-    url = f"{D360_BASE_URL}/v1/messages"
-    
-    headers = {
-        "D360-API-KEY": D360_API_KEY,
-        "Content-Type": "application/json"
-    }
+    # Формируем строки списка в формате 360dialog
+    list_rows = []
+    for row in rows:
+        row_data = {
+            "id": row["id"],
+            "title": row["title"][:24]  # Максимум 24 символа для title
+        }
+        # Добавляем description если есть
+        if "description" in row:
+            row_data["description"] = row["description"][:72]  # Максимум 72 символа
+        
+        list_rows.append(row_data)
     
     payload = {
         "recipient_type": "individual",
-        "to": user_id,
+        "to": to,
         "type": "interactive",
         "interactive": {
             "type": "list",
             "body": {
-                "text": text
+                "text": body_text
             },
             "action": {
-                "button": button_text,
-                "sections": sections
+                "button": "Выбрать",  # Текст кнопки открытия списка
+                "sections": [
+                    {
+                        "title": section_title,
+                        "rows": list_rows
+                    }
+                ]
             }
         }
     }
     
     try:
-        logger.info(f"📤 Отправка списка пользователю {user_id}")
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        logger.info(f"📤 Отправка списка ({len(list_rows)} элементов) → {to}")
+        response = requests.post(
+            D360_BASE_URL,
+            json=payload,
+            headers=_get_headers(),
+            timeout=HTTP_TIMEOUT
+        )
         
-        if response.status_code == 200 or response.status_code == 201:
-            logger.info(f"✅ Список отправлен {user_id}")
+        if response.status_code in [200, 201]:
+            logger.info(f"✅ Список отправлен → {to}")
             return True
         else:
-            logger.error(f"❌ Ошибка отправки списка: {response.status_code} - {response.text}")
+            logger.error(f"❌ Ошибка {response.status_code}: {response.text}")
             return False
-    
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"⏱️ Timeout при отправке списка → {to}")
+        return False
     except Exception as e:
         logger.error(f"❌ Исключение при отправке списка: {e}", exc_info=True)
         return False
-
-
-def mark_message_as_read(message_id: str) -> bool:
-    """
-    Отметить сообщение как прочитанное.
-    
-    Args:
-        message_id: ID сообщения
-    
-    Returns:
-        True если успешно
-    """
-    url = f"{D360_BASE_URL}/v1/messages/{message_id}/mark_as_read"
-    
-    headers = {
-        "D360-API-KEY": D360_API_KEY
-    }
-    
-    try:
-        response = requests.put(url, headers=headers, timeout=10)
-        return response.status_code == 200
-    except Exception as e:
-        logger.error(f"❌ Ошибка mark_as_read: {e}")
-        return False
-

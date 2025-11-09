@@ -16,11 +16,15 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual Environment
+.venv/
 venv/
 ENV/
 env/
@@ -38,23 +42,28 @@ env/
 
 # Logs
 *.log
-logs/
+bot_run.log
+bot.log
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
 
+# Data files (кроме .gitkeep)
+data/*
+!data/.gitkeep
+
+# Google credentials
+oauth_client.json
+token.json
+credentials.json
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Google credentials
-credentials.json
-token.json
-oauth_client.json
-
-# Backups
+# Temporary files
+*.tmp
 *.bak
 *.backup
-
