@@ -41,7 +41,7 @@ def send_text(to: str, text: str) -> bool:
         bool: True если отправлено успешно, False в случае ошибки
     """
     payload = {
-        "recipient_type": "individual",
+        "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
         "text": {
@@ -98,7 +98,7 @@ def send_interactive_buttons(to: str, body_text: str, buttons_list: List[Dict[st
         })
     
     payload = {
-        "recipient_type": "individual",
+        "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
@@ -165,7 +165,7 @@ def send_interactive_list(to: str, body_text: str, section_title: str, rows: Lis
         list_rows.append(row_data)
     
     payload = {
-        "recipient_type": "individual",
+        "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {

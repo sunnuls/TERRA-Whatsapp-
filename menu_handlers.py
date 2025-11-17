@@ -29,14 +29,16 @@ def send_main_menu(to: str) -> bool:
     Returns:
         bool: True если отправлено успешно
     """
-    buttons = [
-        {"id": BTN_FILL_TODAY, "title": "Заполнить за сегодня"},
-        {"id": BTN_FILL_RANGE, "title": "Заполнить за период"},
-        {"id": BTN_MY_STATUS, "title": "Мой статус"}
-    ]
-    
+    # Временно отправляем текстовое сообщение для теста
     logger.info(f"📋 Отправка главного меню → {to}")
-    return send_interactive_buttons(to, MSG_MAIN_MENU, buttons)
+    return send_text(to, f"{MSG_MAIN_MENU}\n\n1️⃣ Заполнить за сегодня\n2️⃣ Заполнить за период\n3️⃣ Мой статус")
+    
+    # buttons = [
+    #     {"id": BTN_FILL_TODAY, "title": "Заполнить за сегодня"},
+    #     {"id": BTN_FILL_RANGE, "title": "Заполнить за период"},
+    #     {"id": BTN_MY_STATUS, "title": "Мой статус"}
+    # ]
+    # return send_interactive_buttons(to, MSG_MAIN_MENU, buttons)
 
 
 def send_shift_list(to: str) -> bool:
