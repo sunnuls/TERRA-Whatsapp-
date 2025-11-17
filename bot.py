@@ -29,7 +29,6 @@ app = Flask(__name__)
 
 # Получение конфигурации из переменных окружения
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-PORT = int(os.getenv("PORT", 8000))
 MODE = os.getenv("MODE", "dev")
 
 # Проверка обязательных параметров
@@ -45,74 +44,33 @@ if not os.getenv("D360_API_KEY"):
 @app.route('/webhook', methods=['GET'])
 def webhook_verify():
     """
-    GET /webhook - верификация вебхука от 360dialog.
-    
-    360dialog отправляет GET запрос с параметрами:
-    - hub.mode: должен быть "subscribe"
-    - hub.verify_token: должен совпадать с VERIFY_TOKEN
-    - hub.challenge: строка, которую нужно вернуть для подтверждения
-    
-    Returns:
-        - hub.challenge если токен совпадает
-        - 403 если токен не совпадает
+    GET /webhook - health-check endpoint для 360dialog.
+    Всегда возвращает "OK", 200 для совместимости.
     """
-    # Получаем параметры из query string
-    mode = request.args.get('hub.mode')
-    token = request.args.get('hub.verify_token')
-    challenge = request.args.get('hub.challenge')
-    
-    logger.info(f"📥 GET /webhook - mode={mode}, token={'***' if token else None}, challenge={'***' if challenge else None}")
-    
-    # Проверяем токен
-    if mode and token:
-        if mode == 'subscribe' and token == VERIFY_TOKEN:
-            logger.info("✅ Webhook verified successfully!")
-            # Возвращаем challenge для подтверждения
-            return challenge if challenge else "ok", 200
-        else:
-            logger.warning("⚠️ Verification token mismatch!")
-            return "Forbidden", 403
-    
-    logger.warning("⚠️ Missing verification parameters")
-    return "Bad Request", 400
+    logger.info("GET /webhook - health-check request")
+    # Просто возвращаем OK, без проверки параметров
+    return "OK", 200
 
 
 @app.route('/webhook', methods=['POST'])
-def webhook_handler():
+def webhook_legacy():
     """
-    POST /webhook - обработка входящих сообщений от 360dialog.
-    
-    Получает JSON payload с данными о входящих сообщениях, статусах и т.д.
-    Всегда возвращает 200 OK в течение 3 секунд (требование WhatsApp).
-    
-    Returns:
-        JSON response с статусом 200
+    Legacy webhook endpoint. Работает так же, как '/' для POST.
     """
-    # Безопасное чтение JSON (silent=True предотвращает exception при невалидном JSON)
-    data = request.get_json(silent=True)
-    
-    # Логируем полный payload для отладки
-    logger.info(f"📨 POST /webhook - Получен payload: {data}")
-    
-    # Проверяем что данные есть
-    if not data:
-        logger.warning("⚠️ Пустой или невалидный JSON payload")
-        return jsonify({"status": "ok"}), 200
-    
-    # Обрабатываем входящие сообщения в отдельной функции
     try:
-        handle_incoming_message(data)
+        data = request.get_json(force=True, silent=True)
+        logger.info("POST /webhook - Incoming webhook payload: %s", data)
+        handle_incoming_update(data)
     except Exception as e:
-        # Ловим все исключения чтобы всегда вернуть 200
-        logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
-    
-    # Всегда возвращаем 200 OK (требование WhatsApp API)
-    return jsonify({"status": "ok"}), 200
+        logger.exception("Error while handling webhook on '/webhook': %s", e)
+
+    return "OK", 200
 
 
-def handle_incoming_message(data: dict):
+def handle_incoming_update(data: dict | None) -> None:
     """
-    Обрабатывает входящие сообщения из webhook payload.
+    Общая точка входа для обработки входящих webhook-данных от 360dialog.
+    data - словарь с JSON телом запроса.
     
     Структура payload от 360dialog/WhatsApp:
     {
@@ -141,9 +99,13 @@ def handle_incoming_message(data: dict):
     }
     
     Args:
-        data: Словарь с данными от 360dialog
+        data: Словарь с данными от 360dialog (может быть None)
     """
     # Защита от пустых/нестандартных payload'ов
+    if not data:
+        logger.info("handle_incoming_update called with empty data")
+        return
+    
     try:
         # Проходим по всем entry (обычно один элемент)
         entries = data.get("entry", [])
@@ -164,7 +126,7 @@ def handle_incoming_message(data: dict):
                     process_single_message(msg)
                     
     except Exception as e:
-        logger.error(f"❌ Ошибка в handle_incoming_message: {e}", exc_info=True)
+        logger.error(f"❌ Ошибка в handle_incoming_update: {e}", exc_info=True)
 
 
 def process_single_message(msg: dict):
@@ -251,27 +213,39 @@ def health_check():
     }), 200
 
 
-@app.route('/', methods=['GET'])
-def index():
+@app.route('/', methods=['GET', 'POST'])
+def webhook_root():
     """
-    Корневой endpoint для проверки что сервер запущен.
-    
-    Returns:
-        Простой текстовый ответ
+    Root webhook endpoint for 360dialog.
+    GET  - health-check, возвращает "OK".
+    POST - приём webhook-событий от 360dialog.
     """
-    return "WhatsApp Bot is running! 🤖", 200
+    if request.method == 'GET':
+        logger.info("GET / - health-check request")
+        return "OK", 200
+
+    # POST - обработка webhook событий
+    try:
+        data = request.get_json(force=True, silent=True)
+        logger.info("POST / - Incoming webhook payload: %s", data)
+        handle_incoming_update(data)
+    except Exception as e:
+        logger.exception("Error while handling webhook on '/': %s", e)
+
+    # Всегда возвращаем 200 OK, чтобы 360dialog не показывал 404/500
+    return "OK", 200
 
 
 if __name__ == '__main__':
-    logger.info("=" * 50)
-    logger.info("🤖 WhatsApp Bot Starting...")
-    logger.info("=" * 50)
-    logger.info(f"📡 Mode: {MODE}")
-    logger.info(f"🔐 Verify Token: {'***' if VERIFY_TOKEN else 'NOT SET'}")
-    logger.info(f"🔑 API Key: {'***' if os.getenv('D360_API_KEY') else 'NOT SET'}")
-    logger.info(f"🌐 Server: 0.0.0.0:{PORT}")
-    logger.info("=" * 50)
-    
-    # Запуск Flask приложения
-    # host=0.0.0.0 позволяет принимать соединения извне (не только localhost)
-    app.run(host="0.0.0.0", port=PORT, debug=(MODE == "dev"))
+    # Чтение переменных окружения для хоста и порта
+    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+    SERVER_PORT = int(os.getenv("SERVER_PORT", os.getenv("PORT", "8000")))
+
+    logger.info("=============================================")
+    logger.info(" WhatsApp Bot Starting...")
+    logger.info("  Mode: %s", MODE)
+    logger.info("  Server: %s:%s", SERVER_HOST, SERVER_PORT)
+    logger.info("=============================================")
+
+    # Запуск без debug режима и reloader для стабильной работы с ngrok
+    app.run(host=SERVER_HOST, port=SERVER_PORT)
